@@ -1,0 +1,19 @@
+[project]
+name = "convert_txt2xl"
+version = "1.0.0"
+python_version = "3.14"
+entry_point = "main.py"
+source_files = ["main.py", "assets/"]
+dependencies = ["requests", "rich", "numpy"]
+hidden_imports = ["pkg_resources.extern"]
+collect_all = []
+preserve_extensions = [".png", ".ico"]
+launch_command = "{ENTRY_POINT}"
+upx_exclude = []
+
+[runtimes]
+windows-x64 = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.14.10+20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+
+[windows]
+hide_console = true
+hidden_imports = ["winreg"]
