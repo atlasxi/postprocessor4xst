@@ -50,12 +50,13 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from enum import Enum
+import pandas as pd
 
 class Loglevel(Enum):
     interupts = 0
     error = 1
     warning = 2
-
+log_info: list[dict[Loglevel, str]] = [] 
 
 def recursive_find_all_txt(excluded_dirs:list[str])->list[str]:
     txt_file_list = []
@@ -66,9 +67,9 @@ def recursive_find_all_txt(excluded_dirs:list[str])->list[str]:
         txt_file_list.append(path)
     return txt_file_list
 
-def is_valid_format(file_list:list[str])->list[dict[Loglevel, str]]:
+def check_txt_format(file_list:list[str])->list[dict[Loglevel, str]]:
     # warning or errors in log file
-    log_info: list[dict[Loglevel, str]] = [] 
+    # TODO: remove all file with fatal error
     key_list = None
     row_dict = {}
     for file in file_list:
@@ -107,6 +108,49 @@ def is_valid_format(file_list:list[str])->list[dict[Loglevel, str]]:
                         key_list = current_keys
     return log_info
 
+def convert_txt_into_list(file_list:list[str]):
+    data:dict[str,list] = {}
+    for txt in file_list:
+        with open(txt, "r",encoding="utf-8") as opened_txt:
+            # read the txt into a dict
+            for line in opened_txt:
+                line = line.strip("\r\n")
+                if not line:
+                    continue
+                for unit in line.split(","):
+                    unit = unit.strip()
+                    if not unit or ":" not in unit:
+                        continue
+                    key, value = unit.split(":", 1)
+                    data.setdefault(key.strip(), []).append(value.strip())
+    return data
+
+def is_valid_data(data: dict[str,list])->bool:
+    data_len = None
+    for _,list in data.items():
+        if data_len == None:
+            data_len = len(list)
+        elif data_len != len(list):
+            # TODO: log msg to add
+            log_info.append({Loglevel.interupts: "data row is not aligned"})
+            return False
+    return True
+
+def sort_all_pds_data(pd_data: pd.DataFrame, chunk_size: int, s_interval_sort_col: str)->pd.DataFrame:
+    # TODO: sort not work well in sorting. consider one TorqDmd with more data. in a spec speed get more than one data.
+    pd_data = pd_data.sort_values(by=["WT_Speed"], ascending=[True])
+    sorted_data = []
+    for start in range(0, len(pd_data),chunk_size):
+        block = pd_data.iloc[start:start + chunk_size]
+        block_sorted = block.sort_values(by=s_interval_sort_col)
+        sorted_data.append(block_sorted)
+    result = pd.concat(sorted_data).reset_index(drop=True)
+    pd_data.loc[:, :] = result.values
+    return result
+
+def strip_repeated_pds_data(pd_data: pd.DataFrame)->pd.DataFrame:
+    pass
+
 def fuzzy_comp(a:float,b:float,delta:float)->bool:
     if(abs(a-b)<delta):
         return True
@@ -117,17 +161,47 @@ def fuzzy_comp(a:float,b:float,delta:float)->bool:
 def main():
     excluded_dirs = [".git", "__pycache__", "venv", ".venv", "output"]
     file_list = recursive_find_all_txt(excluded_dirs)
-    logs = is_valid_format(file_list)
-    for idx, log_entry in enumerate(logs, 1):
-        for level, message in log_entry.items():
-            if level == Loglevel.warning:
-                prefix = "[WARNING]"
-            elif level == Loglevel.error:
-                prefix = "[ERROR]  "
-            else:
-                prefix = "[INTERUPT]  "
-                
-            print(f"{idx:3d}. {prefix} {message}")
+    data = convert_txt_into_list(file_list)
+    if is_valid_data(data) == False:
+        return False
+    for key,value in data.items():
+        print(f"{key}->{len(value)}")
+    pd_data = pd.DataFrame(data)
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.max_rows', None)
+    pd.set_option('display.max_colwidth', None)
+    pd.set_option('display.width', 1000)
+    sort_all_pds_data(pd_data, 41, "TorqDmd")
+    print(pd_data.drop([
+    # "Num",
+    "BusVol",
+    "BusCurrent",
+    "PhaseCurrent",
+    "PhaseVol",
+    # "MotorSpeed",
+    # "TorqDmd",
+    "TorqFedBck",
+    "IdDmd",
+    "IdBck",
+    "IqDmd",
+    "IqBck",
+    "VdDmd",
+    "VqDmd",
+    "SpeedSet",
+    "BusVolSet",
+    "WT_BusVol",
+    "WT_BusCurrent",
+    "WT_PhaseVol",
+    "WT_PhaseCurrent",
+    # "WT_Torque",
+    # "WT_Speed",
+    "WT_MotorEfficiency",
+    "WT_ControllerEfficiency",
+    "WT_SystemEfficiency",
+    "WT_AcPower",
+    "WT_DcPower",
+    "WT_MechanicalPower"
+    ], axis=1))
 
 if __name__ == "__main__":
     main()
