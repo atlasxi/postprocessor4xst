@@ -136,16 +136,27 @@ def is_valid_data(data: dict[str,list])->bool:
             return False
     return True
 
-def sort_all_pds_data(pd_data: pd.DataFrame, chunk_size: int, s_interval_sort_col: str)->pd.DataFrame:
+def sort_all_pds_data(pd_data: pd.DataFrame, s_interval_sort_col: str, rpm_list: list[int], rpm_delta: int) -> pd.DataFrame:
     # TODO: sort not work well in sorting. consider one TorqDmd with more data. in a spec speed get more than one data.
-    pd_data = pd_data.sort_values(by=["WT_Speed"], ascending=[True])
-    sorted_data = []
-    for start in range(0, len(pd_data),chunk_size):
-        block = pd_data.iloc[start:start + chunk_size]
-        block_sorted = block.sort_values(by=s_interval_sort_col)
-        sorted_data.append(block_sorted)
-    result = pd.concat(sorted_data).reset_index(drop=True)
-    pd_data.loc[:, :] = result.values
+    '''
+    1. classify by WT_Torq
+    2. if TorqDmd > 0, DD, else FD
+    # 2. if DC_power > AC_power, DD mode .else FD mode
+    '''
+    temp_dict:dict[int, pd.DataFrame] = {}
+    pd_data["WT_Speed"] = pd.to_numeric(pd_data["WT_Speed"])
+    pd_data["WT_Torque"] = pd.to_numeric(pd_data["WT_Torque"])
+    pd_data[s_interval_sort_col] = pd.to_numeric(pd_data[s_interval_sort_col])
+    for rpm in rpm_list:
+        mask = pd_data["WT_Speed"].between(rpm-rpm_delta, rpm+rpm_delta)
+        block = pd_data[mask].copy()
+        pos_block = block[block[s_interval_sort_col] > 0].sort_values(s_interval_sort_col, key=abs)
+        neg_block = block[block[s_interval_sort_col] < 0].sort_values(s_interval_sort_col, key=abs)
+        zero_block = block[block[s_interval_sort_col] == 0].head(1)
+        dd = pd.concat([zero_block, pos_block]).reset_index(drop=True)
+        fd = pd.concat([zero_block, neg_block]).reset_index(drop=True)
+        temp_dict[rpm] = pd.concat([zero_block, pos_block, zero_block, neg_block]).reset_index(drop=True)
+    result = pd.concat([temp_dict[rpm] for rpm in rpm_list if rpm in temp_dict]).reset_index(drop=True)
     return result
 
 def strip_repeated_pds_data(pd_data: pd.DataFrame)->pd.DataFrame:
@@ -163,6 +174,7 @@ def main():
     file_list = recursive_find_all_txt(excluded_dirs)
     data = convert_txt_into_list(file_list)
     if is_valid_data(data) == False:
+        print("data invalid")
         return False
     for key,value in data.items():
         print(f"{key}->{len(value)}")
@@ -171,37 +183,40 @@ def main():
     pd.set_option('display.max_rows', None)
     pd.set_option('display.max_colwidth', None)
     pd.set_option('display.width', 1000)
-    sort_all_pds_data(pd_data, 41, "TorqDmd")
-    print(pd_data.drop([
-    # "Num",
-    "BusVol",
-    "BusCurrent",
-    "PhaseCurrent",
-    "PhaseVol",
-    # "MotorSpeed",
-    # "TorqDmd",
-    "TorqFedBck",
-    "IdDmd",
-    "IdBck",
-    "IqDmd",
-    "IqBck",
-    "VdDmd",
-    "VqDmd",
-    "SpeedSet",
-    "BusVolSet",
-    "WT_BusVol",
-    "WT_BusCurrent",
-    "WT_PhaseVol",
-    "WT_PhaseCurrent",
-    # "WT_Torque",
-    # "WT_Speed",
-    "WT_MotorEfficiency",
-    "WT_ControllerEfficiency",
-    "WT_SystemEfficiency",
-    "WT_AcPower",
-    "WT_DcPower",
-    "WT_MechanicalPower"
-    ], axis=1))
+    pd_data = sort_all_pds_data(pd_data, "TorqDmd",list(range(0, 10001, 500)), 2)
+    if pd_data.empty:
+        print("empty pd_data")
+    if 1:
+        print(pd_data.drop([
+        # "Num",
+        "BusVol",
+        "BusCurrent",
+        "PhaseCurrent",
+        "PhaseVol",
+        # "MotorSpeed",
+        # "TorqDmd",
+        "TorqFedBck",
+        "IdDmd",
+        "IdBck",
+        "IqDmd",
+        "IqBck",
+        "VdDmd",
+        "VqDmd",
+        "SpeedSet",
+        "BusVolSet",
+        "WT_BusVol",
+        "WT_BusCurrent",
+        "WT_PhaseVol",
+        "WT_PhaseCurrent",
+        # "WT_Torque",
+        # "WT_Speed",
+        "WT_MotorEfficiency",
+        "WT_ControllerEfficiency",
+        "WT_SystemEfficiency",
+        "WT_AcPower",
+        "WT_DcPower",
+        "WT_MechanicalPower"
+        ], axis=1))
 
 if __name__ == "__main__":
     main()
