@@ -44,13 +44,22 @@ WT_MechanicalPower:2.83
 """
 
 import re
+import sys
+import pandas as pd
+import io
+from enum import Enum
 from pathlib import Path
+from enum import Enum
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
-from enum import Enum
-import pandas as pd
+
+
+class Loglevel(Enum):
+    interupts = 0
+    error = 1
+    warning = 2
 
 class Loglevel(Enum):
     interupts = 0
@@ -136,13 +145,15 @@ def is_valid_data(data: dict[str,list])->bool:
             return False
     return True
 
-def sort_all_pds_data(pd_data: pd.DataFrame, s_interval_sort_col: str, rpm_list: list[int], rpm_delta: int) -> pd.DataFrame:
+def sort_all_pds_data(pd_data: pd.DataFrame, s_interval_sort_col: str, rpm_list: list[int], rpm_delta: int):
     # TODO: sort not work well in sorting. consider one TorqDmd with more data. in a spec speed get more than one data.
     '''
     1. classify by WT_Torq
     2. if TorqDmd > 0, DD, else FD
     # 2. if DC_power > AC_power, DD mode .else FD mode
     '''
+    rpm_list = sorted(list(set(rpm_list)))
+    print(f"rpm_list:{rpm_list}")
     temp_dict:dict[int, pd.DataFrame] = {}
     pd_data["WT_Speed"] = pd.to_numeric(pd_data["WT_Speed"])
     pd_data["WT_Torque"] = pd.to_numeric(pd_data["WT_Torque"])
@@ -150,16 +161,35 @@ def sort_all_pds_data(pd_data: pd.DataFrame, s_interval_sort_col: str, rpm_list:
     for rpm in rpm_list:
         mask = pd_data["WT_Speed"].between(rpm-rpm_delta, rpm+rpm_delta)
         block = pd_data[mask].copy()
+        if block.empty:
+            print(f"warning: {rpm}rpm empty")
+            continue
         pos_block = block[block[s_interval_sort_col] > 0].sort_values(s_interval_sort_col, key=abs)
         neg_block = block[block[s_interval_sort_col] < 0].sort_values(s_interval_sort_col, key=abs)
         zero_block = block[block[s_interval_sort_col] == 0].head(1)
         dd = pd.concat([zero_block, pos_block]).reset_index(drop=True)
         fd = pd.concat([zero_block, neg_block]).reset_index(drop=True)
         temp_dict[rpm] = pd.concat([zero_block, pos_block, zero_block, neg_block]).reset_index(drop=True)
-    result = pd.concat([temp_dict[rpm] for rpm in rpm_list if rpm in temp_dict]).reset_index(drop=True)
-    return result
+    current_row = 0
+    for rpm, sub_pd_data in temp_dict.items():
+        print(f"{rpm}->{len(sub_pd_data)}")
+        # if current_row == 0:
+        #     current_row = sub_pd_data.shape
+        # else:
+        #     if current_row != sub_pd_data.shape:
+        #         log_info.append({Loglevel.interupts: "sub_pd_data shape not match"})
+        #         return;    
 
-def strip_repeated_pds_data(pd_data: pd.DataFrame)->pd.DataFrame:
+
+    # TODO:  drop keyword will be deprecated in future
+    # pd_data = pd.concat([temp_dict[rpm] for rpm in sorted(temp_dict.keys())]).reset_index(drop=True)
+    sorted_df = pd.concat([temp_dict[rpm] for rpm in sorted(temp_dict.keys()) if rpm in temp_dict]).reset_index(drop=True)
+    pd_data.drop(pd_data.index, inplace=True)
+    for col in sorted_df.columns:
+        pd_data[col] = sorted_df[col]
+    return temp_dict
+
+def strip_repeated_pds_data(data_dict: dict[int, pd.DataFrame], density: list[int])->pd.DataFrame:
     pass
 
 def fuzzy_comp(a:float,b:float,delta:float)->bool:
@@ -167,7 +197,26 @@ def fuzzy_comp(a:float,b:float,delta:float)->bool:
         return True
     return False
     
-
+def display_loginfo(logs: list[dict[Loglevel, str]], stream="stdout"):
+    close_after = False
+    if stream == "stdout":
+        out = sys.stdout
+    elif stream == "stderr":
+        out = sys.stderr
+    elif hasattr(stream, "write") and not getattr(stream, "closed", False):
+        if getattr(stream, "writable", lambda: True)() is False:
+            raise ValueError(f"{stream!r} not writable")
+        out = stream
+    else:
+        out = open(stream, "w", encoding="utf-8")
+        close_after = True
+    try:
+        for entry in logs:
+            for key, msg in entry.items():
+                out.write(f"[{key}]:{msg}\n")
+    finally:
+        if close_after:
+            out.close()
 
 def main():
     excluded_dirs = [".git", "__pycache__", "venv", ".venv", "output"]
@@ -183,40 +232,14 @@ def main():
     pd.set_option('display.max_rows', None)
     pd.set_option('display.max_colwidth', None)
     pd.set_option('display.width', 1000)
-    pd_data = sort_all_pds_data(pd_data, "TorqDmd",list(range(0, 10001, 500)), 2)
-    if pd_data.empty:
-        print("empty pd_data")
-    if 1:
-        print(pd_data.drop([
-        # "Num",
-        "BusVol",
-        "BusCurrent",
-        "PhaseCurrent",
-        "PhaseVol",
-        # "MotorSpeed",
-        # "TorqDmd",
-        "TorqFedBck",
-        "IdDmd",
-        "IdBck",
-        "IqDmd",
-        "IqBck",
-        "VdDmd",
-        "VqDmd",
-        "SpeedSet",
-        "BusVolSet",
-        "WT_BusVol",
-        "WT_BusCurrent",
-        "WT_PhaseVol",
-        "WT_PhaseCurrent",
-        # "WT_Torque",
-        # "WT_Speed",
-        "WT_MotorEfficiency",
-        "WT_ControllerEfficiency",
-        "WT_SystemEfficiency",
-        "WT_AcPower",
-        "WT_DcPower",
-        "WT_MechanicalPower"
-        ], axis=1))
+    sort_all_pds_data(pd_data, "WT_Torque",list(range(500, 10001, 500)), 10)
+    # if pd_data is None or pd_data.empty:
+    #     log_info.append({Loglevel.interupts:"sort_all_pds_data failed"})
+    #     return
+    # else:
+    keep_cols = ["Num", "MotorSpeed", "TorqDmd", "WT_Torque", "WT_Speed"]
+    print(pd_data[keep_cols]) 
+    display_loginfo(log_info, stream="output")
 
 if __name__ == "__main__":
     main()
