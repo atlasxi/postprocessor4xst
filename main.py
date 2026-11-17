@@ -61,10 +61,6 @@ class Loglevel(Enum):
     error = 1
     warning = 2
 
-class Loglevel(Enum):
-    interupts = 0
-    error = 1
-    warning = 2
 log_info: list[dict[Loglevel, str]] = [] 
 
 def recursive_find_all_txt(excluded_dirs:list[str])->list[str]:
@@ -145,7 +141,7 @@ def is_valid_data(data: dict[str,list])->bool:
             return False
     return True
 
-def sort_all_pds_data(pd_data: pd.DataFrame, s_interval_sort_col: str, rpm_list: list[int], rpm_delta: int):
+def sort_all_pds_data(pd_data: pd.DataFrame, s_interval_sort_col: str, rpm_list: list[int], rpm_delta: float):
     # TODO: sort not work well in sorting. consider one TorqDmd with more data. in a spec speed get more than one data.
     '''
     1. classify by WT_Torq
@@ -189,8 +185,26 @@ def sort_all_pds_data(pd_data: pd.DataFrame, s_interval_sort_col: str, rpm_list:
         pd_data[col] = sorted_df[col]
     return temp_dict
 
-def strip_repeated_pds_data(data_dict: dict[int, pd.DataFrame], density: list[int])->pd.DataFrame:
+def strip_repeated_pds_data(data_dict: dict[int, pd.DataFrame],weight_list:dict[str,list[int]], density: list[int])->pd.DataFrame:
     pass
+
+def add_weight_col_2data(data_dict: dict[int, pd.DataFrame], required_col: list[str]=[""])->dict(int,pd.DataFrame): 
+    """
+    WT_Queue & Queue
+    WT_BusVol & BusVol
+    WT_BusCurrent & BusCurrent
+    WT_PhaseVol & PhaseVol
+    WT_PhaseCurrent & PhaseCurrent
+    WT_Speed & MotorSpeed
+    9550*WT_MechanicalPower/WT_ & WT_Queue
+    WT_ControllerEfficiency & WT_AcPower/WT_DcPower
+    WT_MotorEfficiency & WT_MotorEfficiency/WT_AcPower
+    WT_SystemEfficiency & WT_MechanicalPower/WT_DcPower
+    Bound efficiency > 0% & <100%
+    TorqDmd & (3/2)p[phi_f*i_q+(Ld-Lq)i_d*i_q] 
+    // phi_f->Permanent magnet flux linkage
+    """
+    return data_dict
 
 def fuzzy_comp(a:float,b:float,delta:float)->bool:
     if(abs(a-b)<delta):
